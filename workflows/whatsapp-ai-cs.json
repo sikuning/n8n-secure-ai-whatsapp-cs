@@ -1,0 +1,170 @@
+{
+  "name": "Secure AI WhatsApp CS",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "whatsapp/inbound",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const crypto = require('crypto');\n\nconst secret = $env.WEBHOOK_SECRET;\nconst signature = $headers['x-signature'];\n\nif (!signature) {\n  throw new Error('Missing signature');\n}\n\nconst payload = JSON.stringify($json);\nconst expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');\n\nif (signature !== expected) {\n  throw new Error('Invalid signature');\n}\n\nreturn $json;"
+      },
+      "name": "Validate Signature",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return {\n  messages: [\n    {\n      role: 'system',\n      content: 'You are a customer service assistant. Answer only if confident. Otherwise reply ESCALATE.'\n    },\n    {\n      role: 'user',\n      content: $json.message\n    }\n  ],\n  temperature: 0.2\n};"
+      },
+      "name": "Prepare AI Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": "={{$json.messages}}"
+      },
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [880, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const reply = $json.choices[0].message.content;\n\nif (reply.includes('ESCALATE')) {\n  return { route: 'human' };\n}\n\nreturn { route: 'ai', reply };"
+      },
+      "name": "Decision Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.route}}",
+              "operation": "equal",
+              "value2": "ai"
+            }
+          ]
+        }
+      },
+      "name": "IF AI",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return {\n  status: 'sent',\n  reply: $json.reply\n};"
+      },
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1500, 220]
+    },
+    {
+      "parameters": {
+        "functionCode": "return {\n  status: 'escalated',\n  reason: 'Low AI confidence'\n};"
+      },
+      "name": "Escalate to Human",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1500, 380]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Signature": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Decision Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision Logic": {
+      "main": [
+        [
+          {
+            "node": "IF AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF AI": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Escalate to Human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
